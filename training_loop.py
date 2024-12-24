@@ -71,7 +71,7 @@ def main(args):
     try:
         train_data=_data["train"]
         test_data=_data["test"]
-    except KeyError:
+    except:
         data=train_data.train_test_split(test_size=0.2, seed=42)
         train_data=_data["train"]
         test_data=_data["test"]
@@ -85,7 +85,7 @@ def main(args):
     try:
         train_shit_data=_shit_data["train"]
         test_shit_data=_shit_data["test"]
-    except KeyError:
+    except:
         _shit_data=train_shit_data.train_test_split(test_size=0.2, seed=42)
         train_shit_data=_shit_data["train"]
         test_shit_data=_shit_data["test"]
