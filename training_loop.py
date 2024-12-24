@@ -106,7 +106,7 @@ def main(args):
         if not args.parallel_vae:
             vae=vae_list[0]
     
-        vae_optimizer_list=[torch.optim.adamw.AdamW(vae.params()) for vae in vae_list]
+        vae_optimizer_list=[torch.optim.AdamW(vae.params()) for vae in vae_list]
 
     unet_list=[MetaDataUnet.from_pretrained(args.pretrained_unet_path) if args.pretrained_unet_path != ""
     else MetaDataUnet()
@@ -116,7 +116,7 @@ def main(args):
     for unet in unet_list:
         unet.to(accelerator.device)
 
-    unet_optimizer=torch.optim.adamw.AdamW([item for sublist in [unet.params() for unet in unet_list] for item in sublist])
+    unet_optimizer=torch.optim.AdamW([item for sublist in [unet.params() for unet in unet_list] for item in sublist])
 
     def encode_vae(vae,batch):
         model_input = vae.encode(batch).latent_dist.sample()
