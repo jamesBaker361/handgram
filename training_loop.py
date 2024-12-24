@@ -72,7 +72,7 @@ def main(args):
         train_data=_data["train"]
         test_data=_data["test"]
     except:
-        data=train_data.train_test_split(test_size=0.2, seed=42)
+        _data=train_data.train_test_split(test_size=0.2, seed=42)
         train_data=_data["train"]
         test_data=_data["test"]
     n_cameras=len(train_data.features)-1 #-1 for time index
