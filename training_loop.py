@@ -148,6 +148,8 @@ def main(args):
                         for unet in unet_list:
                             shitty_column=unet(shitty_column)
                         new_shitty_latents.append(shitty_column)
+                if args.parallel_vae:
+                    decoded_latents=[decode_vae(vae,batch) for vae,batch in zip(vae_list, new_latents)]
                 
                 
 
