@@ -118,7 +118,7 @@ def main(args):
 
     unet_optimizer=torch.optim.adamw.AdamW([item for sublist in [unet.params() for unet in unet_list] for item in sublist])
 
-    def forward_vae(vae,batch):
+    def encode_vae(vae,batch):
         model_input = vae.encode(batch).latent_dist.sample()
         model_input = model_input * vae.config.scaling_factor
         return model_input
@@ -128,9 +128,9 @@ def main(args):
         with accelerator.accumulate():
             for good_batch,shitty_batch in zip(train_data, train_shit_data):
                 if args.parallel_vae:
-                    latents=[forward_vae(vae,good_batch[f"camera_{k}"]) for k,vae in enumerate(vae_list)]
+                    latents=[encode_vae(vae,good_batch[f"camera_{k}"]) for k,vae in enumerate(vae_list)]
                     if use_shitty:
-                        shitty_latents=[forward_vae(vae,shitty_batch[f"camera_{k}"]) for k,vae in enumerate(vae_list)]
+                        shitty_latents=[encode_vae(vae,shitty_batch[f"camera_{k}"]) for k,vae in enumerate(vae_list)]
                 else:
                     latents=[vae(torch.cat([good_batch[f"camera_{k}"] for k in range(n_cameras)]),dim=0)]
                     if use_shitty:
@@ -145,6 +145,7 @@ def main(args):
                         for unet in unet_list:
                             shitty_column=unet(shitty_column)
                         new_shitty_latents.append(shitty_column)
+                
                 
 
 
