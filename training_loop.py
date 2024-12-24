@@ -12,6 +12,7 @@ from PIL import Image
 import numpy as np
 import torch
 
+
 parser=argparse.ArgumentParser()
 
 parser.add_argument("--n_epochs",type=int,default=2)
@@ -44,6 +45,15 @@ def get_image_columns(data):
 
 def main(args):
 
+    preprocess = transforms.Compose(
+    [
+        transforms.Resize((args.image_size, args.image_size)),
+        #transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5], [0.5]),
+    ]
+)
+
     dtype={
         "no":torch.float32,
         "fp16":torch.float16
@@ -52,14 +62,8 @@ def main(args):
     def resize_images(example, image_columns, size=(128, 128)):
         # Iterate through all specified image columns
         for col in image_columns:
-            if col in example and isinstance(example[col], np.ndarray):
-                # Convert NumPy array to PIL Image
-                img = Image.fromarray(example[col])
-                # Resize the image
-                img_resized = img.resize(size)
-                # Convert back to NumPy array and store
-                example[col] = np.array(img_resized)
-                example[col]=transforms.ToTensor()(example[col]).to(dtype)
+            example[col]=[preprocess(img) for img in example[col]]
+
         return example
 
 
@@ -119,6 +123,7 @@ def main(args):
     unet_optimizer=torch.optim.AdamW([item for sublist in [unet.parameters() for unet in unet_list] for item in sublist])
 
     def encode_vae(vae,batch):
+        print(batch)
         model_input = vae.encode(batch).latent_dist.sample()
         model_input = model_input * vae.config.scaling_factor
         return model_input
@@ -131,7 +136,7 @@ def main(args):
         with accelerator.accumulate():
             for good_batch,shitty_batch in zip(train_data, train_shit_data):
                 if args.parallel_vae:
-                    latents=[encode_vae(vae,good_batch[f"camera_{k}"]) for k,vae in enumerate(vae_list)]
+                    latents=[encode_vae(vae,torch.cat(good_batch[f"camera_{k}"],dim=0)) for k,vae in enumerate(vae_list)]
                     if use_shitty:
                         shitty_latents=[encode_vae(vae,shitty_batch[f"camera_{k}"]) for k,vae in enumerate(vae_list)]
                 else:
