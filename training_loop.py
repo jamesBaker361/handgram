@@ -123,6 +123,9 @@ def main(args):
         model_input = model_input * vae.config.scaling_factor
         return model_input
 
+    def decode_vae(vae,batch):
+        return vae.decode(batch/vae.config.scaling_factor,return_dict=False)
+
     #training loop
     for e in range(args.n_epochs):
         with accelerator.accumulate():
