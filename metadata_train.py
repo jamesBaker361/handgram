@@ -3,7 +3,12 @@ import argparse
 from experiment_helpers.gpu_details import print_details
 from accelerate import Accelerator
 from datasets import load_dataset
+from PIL import Image
+import mediapipe as mp
 import time
+import random
+import numpy as np
+import cv2
 
 parser=argparse.ArgumentParser()
 
@@ -12,27 +17,139 @@ parser.add_argument("--project_name",type=str,default="evaluation-creative")
 parser.add_argument("--start",default=0,type=int)
 parser.add_argument("--end",type=int,default=2)
 parser.add_argument("--dataset",type=str, default="jlbaker361/processed-james")
-parser.add_argument("--blur",action="store_true")
+parser.add_argument("--distortion",type=str,default="blur",help="controlnet or blur")
 
+#use controlnet + unet lora + meta embedding vs single perspective controlnet
+#or we do image-to-image SDEDIT conditioning on wrong camera version- not sure what baseline would be
+#sdedit conditioned on bones and metadata THIS vs no metadata and single perspective bones
+#when we get multiple hands we can do OG hand + new handpose and we gotta do that
+#finger fix- we only fuck up a few fingers and then condition on the fucked up fingers
+# keypoint fix- we have a metadata embedding based on the keypoints- i.e. we have [0,1] for each keypoint or finger and embed that into the shape of the emb
 
 
 def main(args):
     accelerator=Accelerator(log_with="wandb",mixed_precision=args.mixed_precision)
     accelerator.init_trackers(project_name=args.project_name,config=vars(args))
 
-    dataset=load_dataset(args.dataset,split="train")
+    dataset=load_dataset(args.dataset)
+
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5)
     #get list of names
     #alpahbaetixe
     #take the start:limit
     subject_name_set=set(dataset["subject_name"])
     subject_name_list=sorted(list(subject_name_set))[args.start:args.end]
     print("subjects are ",subject_name_list)
-    split_dataset = dataset["train"].filter(lambda row: row["subject_name"] in subject_name_list).train_test_split(test_size=0.2, seed=42)
 
-    # Access the train and test splits
-    train_dataset = split_dataset["train"]
-    test_dataset = split_dataset["test"]
+    finger_list=["thumb","index","middle","ring","pinky"]
 
+    for subject in subject_name_list:
+        split_dataset = dataset["train"].filter(lambda row: row["subject_name"] in [subject]).train_test_split(test_size=0.2, seed=42)
+
+        # Access the train and test splits
+        train_dataset = split_dataset["train"]
+        test_dataset = split_dataset["test"]
+
+        base_per_image=3
+        def get_base_dataset(dataset): 
+            #distort via blurring
+            #distort via finger specific blurring/ruining?
+            rows=[]
+            for row in dataset:
+                if args.distortion=="blur":
+                    for b in range(base_per_image):
+                        new_row=[]
+                        random_fingers=random.sample(["thumb","index","middle","ring","pinky"],random.randint(1,5))
+                        for i in range(4):
+                            pil_image=row[f"camera_{i}"]
+                            # Convert PIL Image to NumPy Array
+                            opencv_image = np.array(pil_image)
+                            output_image = opencv_image.copy()
+
+                            # Convert RGB to BGR (OpenCV uses BGR format by default)
+                            opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGB2BGR)
+                            h, w, _ = opencv_image.shape
+                            results = hands.process(opencv_image)
+
+                            if results.multi_hand_landmarks:
+                                for hand_landmarks in results.multi_hand_landmarks:
+
+                                    finger_regions = {
+                                        "thumb": [
+                                            (mp.solutions.hands.HandLandmark.THUMB_CMC, mp.solutions.hands.HandLandmark.THUMB_MCP),
+                                            (mp.solutions.hands.HandLandmark.THUMB_MCP, mp.solutions.hands.HandLandmark.THUMB_IP),
+                                            (mp.solutions.hands.HandLandmark.THUMB_IP, mp.solutions.hands.HandLandmark.THUMB_TIP),
+                                        ],
+                                        "index": [
+                                            (mp.solutions.hands.HandLandmark.INDEX_FINGER_MCP, mp.solutions.hands.HandLandmark.INDEX_FINGER_PIP),
+                                            (mp.solutions.hands.HandLandmark.INDEX_FINGER_PIP, mp.solutions.hands.HandLandmark.INDEX_FINGER_DIP),
+                                            (mp.solutions.hands.HandLandmark.INDEX_FINGER_DIP, mp.solutions.hands.HandLandmark.INDEX_FINGER_TIP),
+                                        ],
+                                        "middle": [
+                                            (mp.solutions.hands.HandLandmark.MIDDLE_FINGER_MCP, mp.solutions.hands.HandLandmark.MIDDLE_FINGER_PIP),
+                                            (mp.solutions.hands.HandLandmark.MIDDLE_FINGER_PIP, mp.solutions.hands.HandLandmark.MIDDLE_FINGER_DIP),
+                                            (mp.solutions.hands.HandLandmark.MIDDLE_FINGER_DIP, mp.solutions.hands.HandLandmark.MIDDLE_FINGER_TIP),
+                                        ],
+                                        "ring": [
+                                            (mp.solutions.hands.HandLandmark.RING_FINGER_MCP, mp.solutions.hands.HandLandmark.RING_FINGER_PIP),
+                                            (mp.solutions.hands.HandLandmark.RING_FINGER_PIP, mp.solutions.hands.HandLandmark.RING_FINGER_DIP),
+                                            (mp.solutions.hands.HandLandmark.RING_FINGER_DIP, mp.solutions.hands.HandLandmark.RING_FINGER_TIP),
+                                        ],
+                                        "pinky": [
+                                            (mp.solutions.hands.HandLandmark.PINKY_MCP, mp.solutions.hands.HandLandmark.PINKY_PIP),
+                                            (mp.solutions.hands.HandLandmark.PINKY_PIP, mp.solutions.hands.HandLandmark.PINKY_DIP),
+                                            (mp.solutions.hands.HandLandmark.PINKY_DIP, mp.solutions.hands.HandLandmark.PINKY_TIP),
+                                        ],
+                                    }
+
+                                    random_regions=[finger_regions[finger] for finger in random_fingers]
+                                    for region in random_regions:
+                                        start_idx, end_idx = region
+                                        start = hand_landmarks.landmark[start_idx]
+                                        end = hand_landmarks.landmark[end_idx]
+
+                                        # Convert normalized coordinates to pixel coordinates
+                                        start_point = (int(start.x * w), int(start.y * h))
+                                        end_point = (int(end.x * w), int(end.y * h))
+
+                                        # Define bounding box for the region
+                                        x_min = min(start_point[0], end_point[0])
+                                        x_max = max(start_point[0], end_point[0])
+                                        y_min = min(start_point[1], end_point[1])
+                                        y_max = max(start_point[1], end_point[1])
+
+                                        # Calculate width and height
+                                        width = x_max - x_min
+                                        height = y_max - y_min
+
+                                        n_sub=1
+                                        # Divide the region into 3 smaller rectangles
+                                        for i in range(n_sub):
+                                            # Calculate the top-left corner of each smaller rectangle
+                                            sub_x_min = x_min + (width // n_sub) * i
+                                            sub_x_max = x_min + (width // n_sub) * (i + 1)
+                                            sub_y_min = y_min + (height // n_sub) * i
+                                            sub_y_max = y_min + (height // n_sub) * (i + 1)
+
+                                            # Extract the sub-region (small rectangle)
+                                            sub_roi = output_image[sub_y_min:sub_y_max, sub_x_min:sub_x_max]
+
+                                            k=100
+
+                                            # Apply Gaussian blur to the smaller rectangle
+                                            if sub_roi.size > 0:
+                                                blurred_sub_roi = cv2.GaussianBlur(sub_roi, (k, k), 50)  # More aggressive blur
+
+                                                # Replace the processed sub-region back into the image
+                                                output_image[sub_y_min:sub_y_max, sub_x_min:sub_x_max] = blurred_sub_roi
+                            new_pil_image=Image.fromarray(output_image)
+                            new_row.append(new_pil_image)
+                        new_row.append(random_fingers)
+                        rows.append(new_row)
+            return rows
+        train_base_dataset=get_base_dataset(train_dataset)
+        test_base_dataset=get_base_dataset(test_dataset)
     #filter out 
     return
 
