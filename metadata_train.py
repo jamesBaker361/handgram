@@ -31,6 +31,7 @@ parser.add_argument("--image_size",type=int,default=512)
 parser.add_argument("--base_pipeline",type=str,default="stabilityai/stable-diffusion-2-1")
 parser.add_argument("--use_perspective",action="store_true")
 parser.add_argument("--camera",type=int,default=0,help="which camera to use if not using mutiple perspectives")
+parser.add_argument("--add_noise",action="store_true",help="add noise as opposed to the target")
 
 
 #use controlnet + unet lora + meta embedding vs single perspective controlnet
@@ -204,23 +205,47 @@ def main(args):
         if args.use_perspective:
             num_metadata+=2
         pipeline.unet=MetaDataUnet.from_unet(pipeline.unet,use_metadata=True,num_metadata=num_metadata)
-        vae=pipeline.unet()
-        pipeline.to(accelerator.device)
+        vae=pipeline.vae
+        noise_scheduler =pipeline.scheduler
+        tokenizer=pipeline.tokenizer
+        text_encoder=pipeline.text_encoder
+        prompt=" "
 
+        pipeline.to(accelerator.device)
+        inputs = tokenizer(prompt, return_tensors="pt", padding="max_length", max_length=77, truncation=True)
+        
         for e in range(args.epochs):
             with accelerator.accumulate(pipeline.unet):
                 for b in range(n_batches):
                     if args.use_perspective:
                         input_camera=random.randint(0,3)
                         output_camera=random.randint(0,3)
+                        camera_meta=torch.tensor([input_camera,output_camera])
 
                     else:
                         input_camera=args.camera
                         output_camera=args.camera
                     input_batch=batched_train_base_dataset[f"camera_{input_camera}"]
-                    output_batch=batched_train_base_dataset[f"camera_{output_camera}"]
-                    model_input = vae.encode(pixel_values).latent_dist.sample()
+                    output_batch=batched_train_dataset[f"camera_{output_camera}"]
+                    model_input = vae.encode(input_batch).latent_dist.sample()
                     model_input = model_input * vae.config.scaling_factor
+
+                    bsz=input_batch.shape[0]
+
+                    timesteps = torch.randint(
+                    0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device
+                    )
+                    timesteps = timesteps.long()
+                    if args.add_noise:
+                        noise=torch.randn(input_batch)
+                    else:
+                        noise=output_batch
+
+                    noisy_model_input = noise_scheduler.add_noise(input_batch, noise, timesteps)
+
+                    text_embeddings = text_encoder(**inputs).last_hidden_state
+
+                    
 
     return
 
