@@ -49,7 +49,7 @@ def main(args):
     finger_list=["thumb","index","middle","ring","pinky"]
 
     for subject in subject_name_list:
-        split_dataset = dataset.filter(lambda row: row["subject_name"] in [subject]).train_test_split(test_size=0.2, seed=42)
+        split_dataset = dataset.filter(lambda row: row["subject_name"] in [subject]).remove_columns("subject_name").train_test_split(test_size=0.2, seed=42)
 
         # Access the train and test splits
         train_dataset = split_dataset["train"]
@@ -59,12 +59,13 @@ def main(args):
         def get_base_dataset(dataset): 
             #distort via blurring
             #distort via finger specific blurring/ruining?
-            rows=[]
+            base_dataset={key:[] for key in [f"camera_{i}" for i in range(4)]+["fingers"]}
             for row in dataset:
                 if args.distortion=="blur":
                     for b in range(base_per_image):
                         new_row=[]
-                        random_fingers=random.sample(["thumb","index","middle","ring","pinky"],random.randint(1,5))
+                        random_fingers=random.sample(finger_list,random.randint(1,5))
+                        base_dataset["fingers"].append(random_fingers)
                         for i in range(4):
                             pil_image=row[f"camera_{i}"]
                             # Convert PIL Image to NumPy Array
@@ -109,6 +110,7 @@ def main(args):
 
                                     random_regions=[finger_regions[finger] for finger in random_fingers]
                                     for region in random_regions:
+                                        print(region)
                                         start_idx, end_idx = region
                                         start = hand_landmarks.landmark[start_idx]
                                         end = hand_landmarks.landmark[end_idx]
@@ -148,13 +150,18 @@ def main(args):
                                                 # Replace the processed sub-region back into the image
                                                 output_image[sub_y_min:sub_y_max, sub_x_min:sub_x_max] = blurred_sub_roi
                             new_pil_image=Image.fromarray(output_image)
-                            new_row.append(new_pil_image)
-                        new_row.append(random_fingers)
-                        rows.append(new_row)
-            return rows
+                            base_dataset[f"camera_{i}"].append(new_pil_image)
+            return base_dataset
         train_base_dataset=get_base_dataset(train_dataset)
         test_base_dataset=get_base_dataset(test_dataset)
-    #filter out 
+
+        def get_batched_dataset(dataset):
+            try:
+                keys=[k for k in dataset.keys()]
+            except:
+                keys=dataset.column_names
+            
+
     return
 
 if __name__=='__main__':
