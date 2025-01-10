@@ -13,6 +13,7 @@ import cv2
 from experiment_helpers.metadata_unet import MetaDataUnet
 from torchvision import transforms
 from diffusers import DiffusionPipeline
+import torch.nn.functional as F
 
 
 
@@ -204,7 +205,8 @@ def main(args):
         num_metadata=len(finger_list)
         if args.use_perspective:
             num_metadata+=2
-        pipeline.unet=MetaDataUnet.from_unet(pipeline.unet,use_metadata=True,num_metadata=num_metadata)
+        metadata_unet=MetaDataUnet.from_unet(pipeline.unet,use_metadata=True,num_metadata=num_metadata)
+        pipeline.unet=metadata_unet
         vae=pipeline.vae
         noise_scheduler =pipeline.scheduler
         tokenizer=pipeline.tokenizer
@@ -217,18 +219,25 @@ def main(args):
         for e in range(args.epochs):
             with accelerator.accumulate(pipeline.unet):
                 for b in range(n_batches):
+
+                    metadata=batched_train_base_dataset["fingers"]
                     if args.use_perspective:
                         input_camera=random.randint(0,3)
                         output_camera=random.randint(0,3)
-                        camera_meta=torch.tensor([input_camera,output_camera])
+                        camera_meta=torch.tensor([[input_camera,output_camera] for _ in range(args.batch_size)])
+                        metadata=torch.cat(metadata,camera_meta,dim=1)
 
                     else:
                         input_camera=args.camera
                         output_camera=args.camera
+                        
                     input_batch=batched_train_base_dataset[f"camera_{input_camera}"]
                     output_batch=batched_train_dataset[f"camera_{output_camera}"]
                     model_input = vae.encode(input_batch).latent_dist.sample()
                     model_input = model_input * vae.config.scaling_factor
+
+                    expected_output=vae.encode(output_batch).latent_dist.sample()
+                    expected_output=expected_output*vae.config.scaling_factor
 
                     bsz=input_batch.shape[0]
 
@@ -244,6 +253,17 @@ def main(args):
                     noisy_model_input = noise_scheduler.add_noise(input_batch, noise, timesteps)
 
                     text_embeddings = text_encoder(**inputs).last_hidden_state
+
+                    predicted=metadata_unet(
+                        sample=noisy_model_input,
+                        timestep=timesteps,
+                        encoder_hidden_states=text_embeddings,
+                        metadata=metadata
+                    ).sample
+
+                    loss= F.mse_loss(predicted.float(), expected_output.float(), reduction="mean")
+
+                    
 
                     
 
