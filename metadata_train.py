@@ -10,7 +10,9 @@ import random
 import numpy as np
 import torch
 import cv2
+from experiment_helpers.metadata_unet import MetaDataUnet
 from torchvision import transforms
+from diffusers import DiffusionPipeline
 
 
 
@@ -26,6 +28,9 @@ parser.add_argument("--epochs",type=int,default=2)
 parser.add_argument("--gradient_accumulation_steps",type=int,default=2)
 parser.add_argument("--batch_size",type=int,default=1)
 parser.add_argument("--image_size",type=int,default=512)
+parser.add_argument("--base_pipeline",type=str,default="stabilityai/stable-diffusion-2-1")
+parser.add_argument("--use_perspective",action="store_true")
+parser.add_argument("--camera",type=int,default=0,help="which camera to use if not using mutiple perspectives")
 
 
 #use controlnet + unet lora + meta embedding vs single perspective controlnet
@@ -125,7 +130,6 @@ def main(args):
 
                                     random_regions=[finger_regions[finger] for finger in random_fingers]
                                     for region in random_regions:
-                                        print(region)
                                         for subregion in region:
                                             start_idx, end_idx = subregion
                                             start = hand_landmarks.landmark[start_idx]
@@ -157,7 +161,7 @@ def main(args):
                                                 # Extract the sub-region (small rectangle)
                                                 sub_roi = output_image[sub_y_min:sub_y_max, sub_x_min:sub_x_max]
 
-                                                k=100
+                                                k=75
 
                                                 # Apply Gaussian blur to the smaller rectangle
                                                 if sub_roi.size > 0:
@@ -185,8 +189,38 @@ def main(args):
                 else:
                     column=[torch.tensor(digits) for digits in column ]
                 batched_dataset[key]=[torch.stack(column[i:i+args.batch_size] for i in range(0,len(column),args.batch_size))]
+                
             return batched_dataset
 
+        
+        batched_train_dataset=get_batched_dataset(train_dataset)
+        n_batches=len(batched_train_dataset)
+        batched_test_dataset=get_batched_dataset(test_dataset)
+        batched_train_base_dataset=get_batched_dataset(train_base_dataset)
+        batched_test_base_dataset=get_batched_dataset(test_base_dataset)
+
+        pipeline=DiffusionPipeline.from_pretrained(args.base_pipeline)
+        num_metadata=len(finger_list)
+        if args.use_perspective:
+            num_metadata+=2
+        pipeline.unet=MetaDataUnet.from_unet(pipeline.unet,use_metadata=True,num_metadata=num_metadata)
+        vae=pipeline.unet()
+        pipeline.to(accelerator.device)
+
+        for e in range(args.epochs):
+            with accelerator.accumulate(pipeline.unet):
+                for b in range(n_batches):
+                    if args.use_perspective:
+                        input_camera=random.randint(0,3)
+                        output_camera=random.randint(0,3)
+
+                    else:
+                        input_camera=args.camera
+                        output_camera=args.camera
+                    input_batch=batched_train_base_dataset[f"camera_{input_camera}"]
+                    output_batch=batched_train_base_dataset[f"camera_{output_camera}"]
+                    model_input = vae.encode(pixel_values).latent_dist.sample()
+                    model_input = model_input * vae.config.scaling_factor
 
     return
 
