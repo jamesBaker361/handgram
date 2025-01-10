@@ -18,6 +18,10 @@ parser.add_argument("--start",default=0,type=int)
 parser.add_argument("--end",type=int,default=2)
 parser.add_argument("--dataset",type=str, default="jlbaker361/processed-james")
 parser.add_argument("--distortion",type=str,default="blur",help="controlnet or blur")
+parser.add_argument("--epochs",type=int,default=2)
+parser.add_argument("--gradient_accumulation_steps",type=int,default=2)
+parser.add_argument("--batch_size",type=int,default=1)
+
 
 #use controlnet + unet lora + meta embedding vs single perspective controlnet
 #or we do image-to-image SDEDIT conditioning on wrong camera version- not sure what baseline would be
@@ -28,10 +32,10 @@ parser.add_argument("--distortion",type=str,default="blur",help="controlnet or b
 
 
 def main(args):
-    accelerator=Accelerator(log_with="wandb",mixed_precision=args.mixed_precision)
+    accelerator=Accelerator(log_with="wandb",mixed_precision=args.mixed_precision,gradient_accumulation_steps=args.gradient_accumulation_steps)
     accelerator.init_trackers(project_name=args.project_name,config=vars(args))
 
-    dataset=load_dataset(args.dataset)
+    dataset=load_dataset(args.dataset,split="train")
 
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5)
@@ -45,7 +49,7 @@ def main(args):
     finger_list=["thumb","index","middle","ring","pinky"]
 
     for subject in subject_name_list:
-        split_dataset = dataset["train"].filter(lambda row: row["subject_name"] in [subject]).train_test_split(test_size=0.2, seed=42)
+        split_dataset = dataset.filter(lambda row: row["subject_name"] in [subject]).train_test_split(test_size=0.2, seed=42)
 
         # Access the train and test splits
         train_dataset = split_dataset["train"]
