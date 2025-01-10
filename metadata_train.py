@@ -237,9 +237,8 @@ def main(args):
         )
         
         for e in range(args.epochs):
-            with accelerator.accumulate(metadata_unet):
-                for b in range(n_batches):
-
+            for b in range(n_batches):
+                with accelerator.accumulate(metadata_unet):
                     metadata=batched_train_base_dataset["fingers"]
                     if args.use_perspective:
                         input_camera=random.randint(0,3)
@@ -289,7 +288,7 @@ def main(args):
                     optimizer.step()
                     
                     optimizer.zero_grad()
-
+                accelerator.log({"loss":loss.detach().item(),f"{subject}_loss":loss.detach().item()})
                     
 
                     
