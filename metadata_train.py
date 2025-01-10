@@ -33,6 +33,10 @@ parser.add_argument("--base_pipeline",type=str,default="stabilityai/stable-diffu
 parser.add_argument("--use_perspective",action="store_true")
 parser.add_argument("--camera",type=int,default=0,help="which camera to use if not using mutiple perspectives")
 parser.add_argument("--add_noise",action="store_true",help="add noise as opposed to the target")
+parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam optimizer.")
+parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
+parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
+parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
 
 
 #use controlnet + unet lora + meta embedding vs single perspective controlnet
@@ -215,9 +219,24 @@ def main(args):
 
         pipeline.to(accelerator.device)
         inputs = tokenizer(prompt, return_tensors="pt", padding="max_length", max_length=77, truncation=True)
+
+        optimizer_class = torch.optim.AdamW
+
+        # Optimizer creation
+        params_to_optimize = list(filter(lambda p: p.requires_grad, metadata_unet.parameters()))
+        if args.train_text_encoder:
+            params_to_optimize = params_to_optimize + list(filter(lambda p: p.requires_grad, text_encoder.parameters()))
+
+        optimizer = optimizer_class(
+            params_to_optimize,
+            lr=args.learning_rate,
+            betas=(args.adam_beta1, args.adam_beta2),
+            weight_decay=args.adam_weight_decay,
+            eps=args.adam_epsilon,
+        )
         
         for e in range(args.epochs):
-            with accelerator.accumulate(pipeline.unet):
+            with accelerator.accumulate(metadata_unet):
                 for b in range(n_batches):
 
                     metadata=batched_train_base_dataset["fingers"]
@@ -262,6 +281,13 @@ def main(args):
                     ).sample
 
                     loss= F.mse_loss(predicted.float(), expected_output.float(), reduction="mean")
+
+                    accelerator.backward(loss)
+                    if accelerator.sync_gradients:
+                        accelerator.clip_grad_norm_(params_to_optimize, args.max_grad_norm)
+                    optimizer.step()
+                    
+                    optimizer.zero_grad()
 
                     
 
