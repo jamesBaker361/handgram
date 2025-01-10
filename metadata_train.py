@@ -211,10 +211,13 @@ def main(args):
             num_metadata+=2
         metadata_unet=MetaDataUnet.from_unet(pipeline.unet,use_metadata=True,num_metadata=num_metadata)
         pipeline.unet=metadata_unet
+        metadata_unet.requires_grad_(True)
         vae=pipeline.vae
+        vae.requires_grad_(False)
         noise_scheduler =pipeline.scheduler
         tokenizer=pipeline.tokenizer
         text_encoder=pipeline.text_encoder
+        text_encoder.requires_grad_(False)
         prompt=" "
 
         pipeline.to(accelerator.device)
@@ -224,8 +227,6 @@ def main(args):
 
         # Optimizer creation
         params_to_optimize = list(filter(lambda p: p.requires_grad, metadata_unet.parameters()))
-        if args.train_text_encoder:
-            params_to_optimize = params_to_optimize + list(filter(lambda p: p.requires_grad, text_encoder.parameters()))
 
         optimizer = optimizer_class(
             params_to_optimize,
