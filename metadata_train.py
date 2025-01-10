@@ -46,6 +46,7 @@ def main(args):
         #transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
+        
     ]
     )
 
@@ -79,7 +80,7 @@ def main(args):
                     for b in range(base_per_image):
                         new_row=[]
                         random_fingers=random.sample(finger_list,random.randint(1,5))
-                        base_dataset["fingers"].append([finger_list.index(finger) for finger in random_fingers])
+                        base_dataset["fingers"].append([1 if finger in random_fingers else 0 for finger in finger_list])
                         for i in range(4):
                             pil_image=row[f"camera_{i}"]
                             # Convert PIL Image to NumPy Array
@@ -179,7 +180,13 @@ def main(args):
             for key in dataset:
                 column=dataset[key]
                 if type(column[0])==Image.Image:
-                    batched_column=torch.stack()
+                    column=[preprocess(image) for image in column]
+                    
+                else:
+                    column=[torch.tensor(digits) for digits in column ]
+                batched_dataset[key]=[torch.stack(column[i:i+args.batch_size] for i in range(0,len(column),args.batch_size))]
+            return batched_dataset
+
 
     return
 
