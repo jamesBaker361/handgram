@@ -4,6 +4,8 @@ from experiment_helpers.gpu_details import print_details
 from accelerate import Accelerator
 from datasets import load_dataset
 from PIL import Image
+from PIL.PngImagePlugin import PngImageFile
+from PIL.JpegImagePlugin import JpegImageFile
 import mediapipe as mp
 import time
 import random
@@ -77,7 +79,7 @@ def main(args):
     finger_list=["thumb","index","middle","ring","pinky"]
 
     for subject in subject_name_list:
-        split_dataset = dataset.filter(lambda row: row["subject_name"] in [subject]).remove_columns("subject_name").train_test_split(test_size=0.2, seed=42)
+        split_dataset = dataset.filter(lambda row: row["subject_name"] in [subject]).remove_columns(["subject_name","timestamp"]).train_test_split(test_size=0.2, seed=42)
 
         # Access the train and test splits
         train_dataset = split_dataset["train"]
@@ -183,15 +185,18 @@ def main(args):
         train_base_dataset=get_base_dataset(train_dataset)
         test_base_dataset=get_base_dataset(test_dataset)
 
+        
         def get_batched_dataset(dataset):
             try:
                 keys=[k for k in dataset.keys()]
             except:
                 keys=dataset.column_names
             batched_dataset={key:[] for key in keys}
-            for key in dataset:
+            print("keys",keys)
+            print(dataset)
+            for key in keys:
                 column=dataset[key]
-                if type(column[0])==Image.Image:
+                if type(column[0])==Image.Image or type(column[0])==PngImageFile or type(column[0])==JpegImageFile:
                     column=[preprocess(image) for image in column]
                     
                 else:
