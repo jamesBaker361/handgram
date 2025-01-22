@@ -38,6 +38,7 @@ parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 p
 parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
 parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
 parser.add_argument("--test_interval",type=int,default=5,help="after how many epochs to make test image")
+parser.add_argument("--steps",type=int,default=20)
 
 
 #use controlnet + unet lora + meta embedding vs single perspective controlnet
@@ -216,6 +217,7 @@ def main(args):
         vae=pipeline.vae
         vae.requires_grad_(False)
         noise_scheduler =pipeline.scheduler
+        noise_scheduler.set_timesteps(args.steps)
         tokenizer=pipeline.tokenizer
         text_encoder=pipeline.text_encoder
         text_encoder.requires_grad_(False)
@@ -312,7 +314,7 @@ def main(args):
                 else:
                     latents=model_input
 
-                images=forward_metadata(pipeline,prompt,None,args.image_size,args.image_size,20,latents=latents)
+                images=forward_metadata(pipeline,prompt,None,args.image_size,args.image_size,args.steps,latents=latents)
                 accelerator.log({f"validation_{i}":images for i,images in enumerate(images) })
                 
                 
