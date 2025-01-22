@@ -40,6 +40,7 @@ parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 p
 parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
 parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
 parser.add_argument("--test_interval",type=int,default=5,help="after how many epochs to make test image")
+parser.add_argument("--learning_rate",type=float,default=0.001)
 parser.add_argument("--steps",type=int,default=20)
 
 
@@ -201,7 +202,7 @@ def main(args):
                     
                 else:
                     column=[torch.tensor(digits) for digits in column ]
-                batched_dataset[key]=[torch.stack(column[i:i+args.batch_size] for i in range(0,len(column),args.batch_size))]
+                batched_dataset[key]=[torch.stack(column[i:i+args.batch_size] ) for i in range(0,len(column),args.batch_size)]
                 
             return batched_dataset
 
