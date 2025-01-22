@@ -10,7 +10,7 @@ import random
 import numpy as np
 import torch
 import cv2
-from experiment_helpers.metadata_unet import MetaDataUnet
+from experiment_helpers.metadata_unet import MetaDataUnet,forward_metadata
 from torchvision import transforms
 from diffusers import DiffusionPipeline
 import torch.nn.functional as F
@@ -37,6 +37,7 @@ parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 par
 parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
 parser.add_argument("--adam_weight_decay", type=float, default=1e-2, help="Weight decay to use.")
 parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer")
+parser.add_argument("--test_interval",type=int,default=5,help="after how many epochs to make test image")
 
 
 #use controlnet + unet lora + meta embedding vs single perspective controlnet
@@ -218,7 +219,7 @@ def main(args):
         tokenizer=pipeline.tokenizer
         text_encoder=pipeline.text_encoder
         text_encoder.requires_grad_(False)
-        prompt=" "
+        prompt="hand"
 
         pipeline.to(accelerator.device)
         inputs = tokenizer(prompt, return_tensors="pt", padding="max_length", max_length=77, truncation=True)
@@ -236,10 +237,10 @@ def main(args):
             eps=args.adam_epsilon,
         )
         
-        for e in range(args.epochs):
+        for e in range(1,1+args.epochs):
             for b in range(n_batches):
                 with accelerator.accumulate(metadata_unet):
-                    metadata=batched_train_base_dataset["fingers"]
+                    metadata=batched_train_base_dataset["fingers"][b]
                     if args.use_perspective:
                         input_camera=random.randint(0,3)
                         output_camera=random.randint(0,3)
@@ -250,8 +251,8 @@ def main(args):
                         input_camera=args.camera
                         output_camera=args.camera
                         
-                    input_batch=batched_train_base_dataset[f"camera_{input_camera}"]
-                    output_batch=batched_train_dataset[f"camera_{output_camera}"]
+                    input_batch=batched_train_base_dataset[f"camera_{input_camera}"][b]
+                    output_batch=batched_train_dataset[f"camera_{output_camera}"][b]
                     model_input = vae.encode(input_batch).latent_dist.sample()
                     model_input = model_input * vae.config.scaling_factor
 
@@ -289,11 +290,39 @@ def main(args):
                     
                     optimizer.zero_grad()
                 accelerator.log({"loss":loss.detach().item(),f"{subject}_loss":loss.detach().item()})
+            if e%args.validation_interval==0:
+                metadata=batched_train_base_dataset["fingers"][0]
+                if args.use_perspective:
+                        input_camera=random.randint(0,3)
+                        output_camera=random.randint(0,3)
+                        camera_meta=torch.tensor([[input_camera,output_camera] for _ in range(args.batch_size)])
+                        metadata=torch.cat(metadata,camera_meta,dim=1)
+
+                else:
+                    input_camera=args.camera
+                    output_camera=args.camera
+
+                input_batch=batched_train_base_dataset[f"camera_{input_camera}"][0]
+                output_batch=batched_train_dataset[f"camera_{output_camera}"][0]
+                model_input = vae.encode(input_batch).latent_dist.sample()
+                model_input = model_input * vae.config.scaling_factor
+
+                if args.add_noise:
+                    latents=torch.randn(model_input)
+                else:
+                    latents=model_input
+
+                images=forward_metadata(pipeline,prompt,None,args.image_size,args.image_size,20,latents=latents)
+                accelerator.log({f"validation_{i}":images for i,images in enumerate(images) })
+                
+                
+                
+
+        #visualizing and testing
                     
 
                     
 
-    return
 
 if __name__=='__main__':
     print_details()
